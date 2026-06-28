@@ -3,6 +3,24 @@ import { v4 as uuidv4 } from 'uuid'
 import { extractCptFeatures } from '../services/featureExtraction.js'
 import { runInference } from '../services/inference.js'
 
+// If MODEL_SERVER_URL is set, forward inference requests to the FastAPI model server.
+// e.g. MODEL_SERVER_URL=http://localhost:8000  or  https://your-model.railway.app
+const MODEL_SERVER_URL = process.env.MODEL_SERVER_URL
+
+async function callModelServer(sessionId: string, inp: any) {
+  const payload: any = { session_id: sessionId }
+  if (inp.cpt)           payload.cpt      = inp.cpt
+  if (inp.activity)      payload.activity = inp.activity
+  if (inp.hrv)           payload.hrv      = inp.hrv
+  const res = await fetch(`${MODEL_SERVER_URL}/infer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(`Model server returned ${res.status}`)
+  return res.json()
+}
+
 export const sessionsRouter = Router()
 
 const sessions: Record<string, any> = {}
@@ -64,15 +82,30 @@ sessionsRouter.post('/:id/questionnaire', (req, res) => {
   res.json({ ok: true })
 })
 
-sessionsRouter.post('/:id/infer', (req, res) => {
+sessionsRouter.post('/:id/infer', async (req, res) => {
   const s = sessions[req.params.id]
   if (!s) return res.status(404).json({ error: 'Session not found' })
+
   const inp: any = {}
-  if (s.cpt_data) inp.cpt = { source: s.cpt_data.source, features: s.cpt_data.features }
-  if (s.activity_data) inp.activity = s.activity_data
-  if (s.hrv_data) inp.hrv = s.hrv_data
+  if (s.cpt_data)          inp.cpt      = { source: s.cpt_data.source, features: s.cpt_data.features }
+  if (s.activity_data)     inp.activity = s.activity_data
+  if (s.hrv_data)          inp.hrv      = s.hrv_data
   if (s.questionnaire_data) inp.questionnaire = s.questionnaire_data
-  const prediction = runInference(inp)
+
+  let prediction
+  if (MODEL_SERVER_URL) {
+    try {
+      // Use the real PyTorch model server
+      prediction = await callModelServer(s.session_id, inp)
+    } catch (err) {
+      console.error('Model server error, falling back to mock:', err)
+      prediction = runInference(inp)
+    }
+  } else {
+    // No model server configured — use built-in mock
+    prediction = runInference(inp)
+  }
+
   s.predictions.push(prediction)
   s.status = 'has_prediction'
   s.last_updated_at = new Date().toISOString()
