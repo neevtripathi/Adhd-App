@@ -29,14 +29,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─── Model architecture (must match your training code exactly) ────────────────
+# ─── Model architecture (matches trained weights exactly) ─────────────────────
+# Derived from weight shapes in model_weights.pth:
+#   activity_encoder.tcn.0.weight: [64, 1, 5]   → Conv1d(1, 64, k=5)
+#   activity_encoder.tcn.4.weight: [64, 64, 5]  → Conv1d(64, 64, k=5)
+#   activity_classifier.0.weight:  [32, 75]     → Linear(75, 32), fusion_dim=75
+#   activity_classifier.2.weight:  [2, 32]      → Linear(32, 2)
+# fusion_dim = 75 = tcn_hidden(64) + cpt_dim(11)
+# cpt_dim = 11: 9 CPT-II T-scores + 2 ASRS subscale scores (normalized 0–1)
 
 class TinyTCN(nn.Module):
-    """1D TCN encoder for activity and HRV time-series windows."""
     def __init__(self, in_channels: int = 1, hidden: int = 64, dropout: float = 0.2):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Conv1d(in_channels, hidden, kernel_size=7, padding=3),
+        self.tcn = nn.Sequential(
+            nn.Conv1d(in_channels, hidden, kernel_size=5, padding=2),
             nn.BatchNorm1d(hidden),
             nn.ReLU(),
             nn.Dropout(dropout),
@@ -47,24 +53,15 @@ class TinyTCN(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # x: [batch, channels, time]
-        out = self.net(x)
-        return out.mean(dim=-1)   # global average pool → [batch, hidden]
+        return self.tcn(x).mean(dim=-1)
 
 
 class MultimodalADHDModel(nn.Module):
-    """
-    Multimodal ADHD model with three branches (activity, HRV, CPT-II).
-    Each branch produces an independent classification output.
-    Missing branches are handled by zeroing their contribution.
-    """
     def __init__(
         self,
-        cpt_dim: int = 9,       # omissions_t, commissions_t, hit_rt_mean_t,
-                                  # hit_rt_sd_t, d_prime, perseverations_t,
-                                  # block_change, isi_change, confidence_index_t
+        cpt_dim: int = 11,
         tcn_hidden: int = 64,
-        clf_hidden: int = 128,
+        clf_hidden: int = 32,
         n_classes: int = 2,
         dropout: float = 0.2,
     ):
@@ -72,55 +69,41 @@ class MultimodalADHDModel(nn.Module):
         self.activity_encoder = TinyTCN(1, tcn_hidden, dropout)
         self.hrv_encoder      = TinyTCN(1, tcn_hidden, dropout)
 
-        fusion_dim = tcn_hidden + cpt_dim   # 73
+        fusion_dim = tcn_hidden + cpt_dim   # 75
 
-        # Per-branch classifier heads
-        def make_head():
-            return nn.Sequential(
-                nn.Linear(fusion_dim, clf_hidden),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(clf_hidden, n_classes),
-            )
-
-        self.activity_head = make_head()
-        self.hrv_head      = make_head()
-
-        # CPT-only head (when no time-series available)
-        self.cpt_head = nn.Sequential(
-            nn.Linear(cpt_dim, clf_hidden),
+        self.activity_classifier = nn.Sequential(
+            nn.Linear(fusion_dim, clf_hidden),
             nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Linear(clf_hidden, n_classes),
+        )
+        self.hrv_classifier = nn.Sequential(
+            nn.Linear(fusion_dim, clf_hidden),
+            nn.ReLU(),
             nn.Linear(clf_hidden, n_classes),
         )
 
     def forward(
         self,
-        cpt_features:    Optional[torch.Tensor] = None,   # [batch, 9]
-        activity_windows: Optional[torch.Tensor] = None,  # [batch, 1, 512]
-        hrv_windows:      Optional[torch.Tensor] = None,  # [batch, 1, 512]
+        cpt_features:     Optional[torch.Tensor] = None,  # [batch, 11]
+        activity_windows: Optional[torch.Tensor] = None,  # [batch, 1, T]
+        hrv_windows:      Optional[torch.Tensor] = None,  # [batch, 1, T]
     ):
         logits_list = []
 
         if activity_windows is not None and cpt_features is not None:
-            act_emb = self.activity_encoder(activity_windows)         # [B, 64]
-            act_fused = torch.cat([act_emb, cpt_features], dim=-1)   # [B, 73]
-            logits_list.append(self.activity_head(act_fused))
+            act_emb   = self.activity_encoder(activity_windows)
+            act_fused = torch.cat([act_emb, cpt_features], dim=-1)
+            logits_list.append(self.activity_classifier(act_fused))
 
         if hrv_windows is not None and cpt_features is not None:
-            hrv_emb = self.hrv_encoder(hrv_windows)
+            hrv_emb   = self.hrv_encoder(hrv_windows)
             hrv_fused = torch.cat([hrv_emb, cpt_features], dim=-1)
-            logits_list.append(self.hrv_head(hrv_fused))
-
-        if cpt_features is not None and not logits_list:
-            logits_list.append(self.cpt_head(cpt_features))
+            logits_list.append(self.hrv_classifier(hrv_fused))
 
         if not logits_list:
-            raise ValueError("At least one modality must be provided.")
+            raise ValueError("At least CPT + one time-series modality is required.")
 
-        # Average logits across available branches
-        stacked = torch.stack(logits_list, dim=0).mean(dim=0)   # [B, 2]
-        return stacked
+        return torch.stack(logits_list, dim=0).mean(dim=0)  # [B, 2]
 
 
 # ─── Load model checkpoint ────────────────────────────────────────────────────
@@ -174,11 +157,16 @@ class ModalityHrv(BaseModel):
     confidence_tier: str
     windows: List[List[float]]
 
+class ModalityQuestionnaire(BaseModel):
+    asrs_inattention_score:   float   # raw score 0–36
+    asrs_hyperactivity_score: float   # raw score 0–36
+
 class InferenceRequest(BaseModel):
-    session_id: str
-    cpt:      Optional[ModalityCpt]      = None
-    activity: Optional[ModalityActivity] = None
-    hrv:      Optional[ModalityHrv]      = None
+    session_id:    str
+    cpt:           Optional[ModalityCpt]           = None
+    activity:      Optional[ModalityActivity]      = None
+    hrv:           Optional[ModalityHrv]           = None
+    questionnaire: Optional[ModalityQuestionnaire] = None
 
 class BranchContributions(BaseModel):
     cpt:      Optional[float] = None
@@ -201,14 +189,20 @@ class InferenceResponse(BaseModel):
 
 # ─── Inference helpers ────────────────────────────────────────────────────────
 
+# 11 features: 9 CPT-II T-scores + 2 ASRS subscale scores normalised to [0,1]
 CPT_FEATURE_ORDER = [
     "omissions_t", "commissions_t", "hit_rt_mean_t", "hit_rt_sd_t",
     "detectability_d_prime", "perseverations_t",
     "block_change", "isi_change", "confidence_index_t",
 ]
 
-def cpt_to_tensor(features: CptFeatures) -> torch.Tensor:
+def build_feature_vector(
+    features: CptFeatures,
+    asrs_inattention_norm: float = 0.5,
+    asrs_hyperactivity_norm: float = 0.5,
+) -> torch.Tensor:
     vals = [getattr(features, k) for k in CPT_FEATURE_ORDER]
+    vals += [asrs_inattention_norm, asrs_hyperactivity_norm]   # indices 9, 10
     return torch.tensor(vals, dtype=torch.float32).unsqueeze(0).to(device)
 
 def windows_to_tensor(windows: List[List[float]]) -> torch.Tensor:
@@ -287,9 +281,12 @@ def infer(req: InferenceRequest):
     else:
         # Real model inference
         with torch.no_grad():
-            cpt_t   = cpt_to_tensor(req.cpt.features)      if req.cpt      else None
-            act_t   = windows_to_tensor(req.activity.windows) if req.activity else None
-            hrv_t   = windows_to_tensor(req.hrv.windows)      if req.hrv      else None
+            asrs_inn  = (req.questionnaire.asrs_inattention_score   / 36.0) if req.questionnaire else 0.5
+            asrs_hyp  = (req.questionnaire.asrs_hyperactivity_score / 36.0) if req.questionnaire else 0.5
+
+            cpt_t = build_feature_vector(req.cpt.features, asrs_inn, asrs_hyp) if req.cpt else None
+            act_t = windows_to_tensor(req.activity.windows) if req.activity else None
+            hrv_t = windows_to_tensor(req.hrv.windows)      if req.hrv      else None
 
             if req.cpt:      mods.append("cpt")
             if req.activity: mods.append("activity")
@@ -297,9 +294,8 @@ def infer(req: InferenceRequest):
 
             logits = model(cpt_features=cpt_t, activity_windows=act_t, hrv_windows=hrv_t)
             probs  = F.softmax(logits, dim=-1)
-            prob   = float(probs[0, 1])   # probability of ADHD class
+            prob   = float(probs[0, 1])
 
-            # Per-branch probabilities (re-run each branch individually)
             if req.cpt and req.activity:
                 act_logits = model(cpt_features=cpt_t, activity_windows=act_t)
                 act_p = round(float(F.softmax(act_logits, dim=-1)[0, 1]), 2)
@@ -307,8 +303,7 @@ def infer(req: InferenceRequest):
                 hrv_logits = model(cpt_features=cpt_t, hrv_windows=hrv_t)
                 hrv_p = round(float(F.softmax(hrv_logits, dim=-1)[0, 1]), 2)
             if req.cpt:
-                cpt_logits = model(cpt_features=cpt_t)
-                cpt_p = round(float(F.softmax(cpt_logits, dim=-1)[0, 1]), 2)
+                cpt_p = round(prob, 2)
 
         model_version = "1.0.0"
 
