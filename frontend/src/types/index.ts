@@ -44,7 +44,8 @@ export interface ActivityData {
   days_collected: number
   mean_daily_score: number
   daily_scores: number[]
-  source: 'manual'
+  source: 'manual' | 'fitbit' | 'csv' | 'apple_health'
+  windows?: number[][]
   submitted_at: string
 }
 
@@ -52,7 +53,8 @@ export interface HrvData {
   confidence_tier: 'standard' | 'reduced'
   sdnn: number
   rmssd: number
-  source: 'wearable' | 'simulated'
+  source: 'wearable' | 'fitbit' | 'csv' | 'apple_health' | 'simulated'
+  windows?: number[][]
   submitted_at: string
 }
 
