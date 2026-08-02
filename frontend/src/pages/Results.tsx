@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronDown, ChevronUp, ExternalLink, RefreshCw, BarChar
 import { useStore } from '../store'
 import type { PredictionResult } from '../types'
 import { runLocalInference } from '../utils/localInference'
+import { api, checkBackendAvailable } from '../api'
 import ModalityStatusBar from '../components/ModalityStatusBar'
 import NavBar from '../components/NavBar'
 
@@ -47,15 +48,33 @@ export default function Results() {
     if (!prediction) runInference()
   }, [])
 
-  function runInference() {
+  async function runInference() {
     setLoading(true); setError('')
     try {
-      const input: Parameters<typeof runLocalInference>[0] = {}
-      if (cpt) input.cpt = { source: cpt.source, features: cpt.features }
-      if (activity) input.activity = { confidence_tier: activity.confidence_tier, days_collected: activity.days_collected, mean_daily_score: activity.mean_daily_score }
-      if (hrv) input.hrv = { confidence_tier: hrv.confidence_tier, sdnn: hrv.sdnn, rmssd: hrv.rmssd }
-      if (questionnaire) input.questionnaire = { asrs_inattention_score: questionnaire.asrs_inattention_score, asrs_hyperactivity_score: questionnaire.asrs_hyperactivity_score, sleep_quality: questionnaire.sleep_quality, stress_level: questionnaire.stress_level }
-      const p = runLocalInference(input)
+      // Build payload — include wearable windows when available so the real model can use them
+      const payload: Record<string, unknown> = {}
+      if (cpt)           payload.cpt           = { source: cpt.source, features: cpt.features }
+      if (activity)      payload.activity      = { confidence_tier: activity.confidence_tier, windows: activity.windows ?? [] }
+      if (hrv)           payload.hrv           = { confidence_tier: hrv.confidence_tier, windows: hrv.windows ?? [] }
+      if (questionnaire) payload.questionnaire = { asrs_inattention_score: questionnaire.asrs_inattention_score, asrs_hyperactivity_score: questionnaire.asrs_hyperactivity_score }
+
+      // Try the real backend (PyTorch model) first; fall back to in-browser inference
+      const backendUp = import.meta.env.VITE_API_URL ? await checkBackendAvailable() : false
+      let p: PredictionResult
+
+      if (backendUp) {
+        const result = await api.runInference({ session_id: sessionId ?? 'anon', ...payload })
+        p = result.prediction as PredictionResult
+      } else {
+        // Local fallback uses simplified heuristics (no wearable windows)
+        const local: Parameters<typeof runLocalInference>[0] = {}
+        if (cpt)           local.cpt           = { source: cpt.source, features: cpt.features }
+        if (activity)      local.activity      = { confidence_tier: activity.confidence_tier, days_collected: activity.days_collected, mean_daily_score: activity.mean_daily_score }
+        if (hrv)           local.hrv           = { confidence_tier: hrv.confidence_tier, sdnn: hrv.sdnn, rmssd: hrv.rmssd }
+        if (questionnaire) local.questionnaire = { asrs_inattention_score: questionnaire.asrs_inattention_score, asrs_hyperactivity_score: questionnaire.asrs_hyperactivity_score, sleep_quality: questionnaire.sleep_quality, stress_level: questionnaire.stress_level }
+        p = runLocalInference(local)
+      }
+
       setPrediction(p)
       addPrediction(p)
     } catch {

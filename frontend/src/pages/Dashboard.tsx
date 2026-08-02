@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Zap, Activity, Heart, ClipboardList, CheckCircle2, ChevronRight, BarChart2, Lock } from 'lucide-react'
+import { Zap, Activity, Heart, ClipboardList, CheckCircle2, ChevronRight, BarChart2 } from 'lucide-react'
 import { useStore } from '../store'
 import DisclaimerBanner from '../components/DisclaimerBanner'
 import NavBar from '../components/NavBar'
@@ -15,13 +15,13 @@ const MODULES = [
     key: 'activity', path: '/activity', icon: <Activity size={22} />, color: 'emerald',
     title: 'Activity Data', tag: 'Actigraphy',
     time: '2 min', confidence: '+Low–Medium',
-    desc: 'Log your physical activity patterns over 3 days. Wearable sync coming in Phase 2.',
+    desc: 'Sync 3 days of movement data from Fitbit, upload an Apple Health or Garmin export, or log manually.',
   },
   {
     key: 'hrv', path: '/hrv', icon: <Heart size={22} />, color: 'rose',
     title: 'HRV Measurement', tag: 'Heart-Rate Variability',
     time: '3 min', confidence: '+Medium',
-    desc: 'Heart-rate variability data from a wearable or guided camera measurement (Phase 2).',
+    desc: 'Sync overnight HRV from Fitbit, upload a CSV or Apple Health export, or enter your SDNN manually.',
   },
   {
     key: 'questionnaire', path: '/questionnaire', icon: <ClipboardList size={22} />, color: 'violet',
@@ -161,11 +161,6 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Phase 2 note */}
-        <div className="bg-slate-100 rounded-xl px-4 py-3 flex items-center gap-2 text-sm text-slate-500">
-          <Lock size={14} />
-          <span><strong>Phase 2 coming soon:</strong> Live wearable sync, camera-based HRV, PDF export, and retraining pipeline.</span>
-        </div>
       </div>
     </div>
   )
