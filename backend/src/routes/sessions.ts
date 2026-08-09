@@ -3,9 +3,10 @@ import { v4 as uuidv4 } from 'uuid'
 import { extractCptFeatures } from '../services/featureExtraction.js'
 import { runInference } from '../services/inference.js'
 
-// If MODEL_SERVER_URL is set, forward inference requests to the FastAPI model server.
-// e.g. MODEL_SERVER_URL=http://localhost:8000  or  https://your-model.railway.app
-const MODEL_SERVER_URL = process.env.MODEL_SERVER_URL
+// Forwards inference requests to the FastAPI model server. Defaults to the local
+// dev instance; override with MODEL_SERVER_URL when the model server is deployed
+// elsewhere, e.g. https://your-model-server.example.com
+const MODEL_SERVER_URL = process.env.MODEL_SERVER_URL ?? 'http://localhost:9090'
 
 async function callModelServer(sessionId: string, inp: any) {
   const payload: any = { session_id: sessionId }

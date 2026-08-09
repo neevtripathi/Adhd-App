@@ -1,20 +1,5 @@
-import express from 'express'
-import cors from 'cors'
-import { sessionsRouter } from './routes/sessions.js'
-import { inferRouter } from './routes/infer.js'
+import app from './app.js'
 
-const app = express()
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3001
-
-const rawOrigins = process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173,http://127.0.0.1:5173'
-const corsOrigin = rawOrigins === '*' ? true : rawOrigins.split(',')
-app.use(cors({ origin: corsOrigin, credentials: true }))
-app.use(express.json({ limit: '50mb' }))  // large for wearable windows
-
-app.use('/api/sessions', sessionsRouter)
-app.use('/api/infer',    inferRouter)
-app.get('/api/health', (_req, res) =>
-  res.json({ status: 'ok', model_server: process.env.MODEL_SERVER_URL ?? null })
-)
 
 app.listen(PORT, () => console.log(`\n🧠  FocusLens API → http://localhost:${PORT}\n`))

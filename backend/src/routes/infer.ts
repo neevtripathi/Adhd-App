@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { runInference } from '../services/inference.js'
 
-const MODEL_SERVER_URL = process.env.MODEL_SERVER_URL
+const MODEL_SERVER_URL = process.env.MODEL_SERVER_URL ?? 'http://localhost:9090'
 
 async function callModelServer(payload: unknown) {
   const res = await fetch(`${MODEL_SERVER_URL}/infer`, {

@@ -3,7 +3,7 @@ FocusLens — PyTorch Model Inference Server
 FastAPI service that loads your trained multimodal ADHD model and serves predictions.
 
 Start with:
-    uvicorn model_server:app --host 0.0.0.0 --port 8000
+    uvicorn model_server:app --host 0.0.0.0 --port 9090
 
 Expects your model checkpoint at: ./checkpoints/model.pt
 """
