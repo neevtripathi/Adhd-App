@@ -59,7 +59,7 @@ export default function Results() {
       if (questionnaire) payload.questionnaire = { asrs_inattention_score: questionnaire.asrs_inattention_score, asrs_hyperactivity_score: questionnaire.asrs_hyperactivity_score }
 
       // Try the real backend (PyTorch model) first; fall back to in-browser inference
-      const backendUp = import.meta.env.VITE_API_URL ? await checkBackendAvailable() : false
+      const backendUp = await checkBackendAvailable()
       let p: PredictionResult
 
       if (backendUp) {
@@ -263,8 +263,11 @@ export default function Results() {
             </div>
 
             {/* Model metadata footer */}
-            <p className="text-center text-xs text-slate-300">
-              Model v{prediction.model_version} · {new Date(prediction.inferred_at).toLocaleString()} · For informational use only
+            <p className="text-center text-xs text-slate-400">
+              <span className={prediction.model_version.includes('sim') || prediction.model_version === 'mock' ? 'text-amber-500 font-medium' : 'text-emerald-600 font-medium'}>
+                {prediction.model_version.includes('sim') ? 'Fallback heuristic' : prediction.model_version === 'mock' ? 'Model server (no checkpoint)' : 'Live model'}
+              </span>
+              {' '}(v{prediction.model_version}) · {new Date(prediction.inferred_at).toLocaleString()} · For informational use only
             </p>
           </>
         )}
