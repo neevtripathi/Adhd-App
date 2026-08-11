@@ -77,7 +77,8 @@ export default function Results() {
 
       setPrediction(p)
       addPrediction(p)
-    } catch {
+    } catch (err) {
+      console.error('Inference failed:', err)
       setError('Could not generate prediction. Please try again.')
     } finally { setLoading(false) }
   }
