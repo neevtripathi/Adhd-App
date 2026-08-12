@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: focuslens-model-server
+    runtime: python
+    plan: free
+    rootDir: model-server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn model_server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: MODEL_CHECKPOINT
+        value: ./checkpoints/model.pt
