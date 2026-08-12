@@ -263,6 +263,10 @@ def mock_infer(req: InferenceRequest) -> dict:
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "FocusLens Model Server"}
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model_loaded": model is not None, "device": str(device)}
