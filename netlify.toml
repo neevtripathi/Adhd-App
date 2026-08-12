@@ -3,15 +3,6 @@
   publish = "frontend/dist"
   functions = "netlify/functions"
 
-# API calls stay on the same Netlify site — routed to the bundled Express
-# backend running as a serverless function, not a separate host.
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/api/api/:splat"
-  status = 200
-
-# SPA fallback so React Router deep-links don't 404 (mirrors frontend/public/_redirects).
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+# All redirects (API routing + SPA fallback) live in frontend/public/_redirects,
+# which Netlify copies into the publish dir. Keeping them in one file avoids
+# ordering ambiguity between netlify.toml [[redirects]] and the _redirects file.
